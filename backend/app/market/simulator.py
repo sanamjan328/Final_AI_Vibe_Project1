@@ -140,6 +140,10 @@ class MarketSimulator(MarketDataSource):
         self._cholesky = np.linalg.cholesky(C)
 
     async def _tick_loop(self) -> None:
+        # Prime the cache immediately so SSE clients connecting at startup see prices at once
+        updates = self._compute_tick()
+        if updates:
+            await self._cache.update(updates)
         while True:
             await asyncio.sleep(TICK_INTERVAL)
             updates = self._compute_tick()
@@ -161,8 +165,8 @@ class MarketSimulator(MarketDataSource):
         for i, ticker in enumerate(self._tickers):
             state = self._states[ticker]
 
-            # Shock event: override GBM with a sudden ±5% jump
-            if np.random.random() < P_EVENT:
+            # Shock event: only eligible when not already in post-shock reversion window
+            if state.revert == 0 and np.random.random() < P_EVENT:
                 shock_pct = np.random.uniform(-0.05, 0.05)
                 new_price = max(state.price * (1 + shock_pct), 0.01)
                 change = new_price - state.price
@@ -180,7 +184,7 @@ class MarketSimulator(MarketDataSource):
                 )
                 continue
 
-            # Normal GBM step
+            # Normal GBM step (drift suppressed during post-shock reversion window)
             effective_drift = 0.0 if state.revert > 0 else state.drift
             log_return = effective_drift + state.vol * z[i]
             new_price = max(state.price * np.exp(log_return), 0.01)

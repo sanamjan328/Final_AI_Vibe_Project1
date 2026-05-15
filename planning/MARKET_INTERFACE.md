@@ -108,7 +108,10 @@ class PriceCache:
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue) -> None:
-        self._subscribers.discard(queue)
+        try:
+            self._subscribers.remove(queue)
+        except ValueError:
+            pass
 ```
 
 ---
@@ -135,9 +138,10 @@ class MarketDataSource(ABC):
         """Start the background polling/simulation loop.
 
         Args:
-            tickers: Initial list of ticker symbols to track.
-                     Implementations should watch for watchlist changes
-                     by re-reading from the cache or database.
+            tickers: Initial set of ticker symbols to track — should be
+                     positions ∪ watchlist so held tickers are always priced.
+                     The caller is responsible for building this union at startup
+                     and for calling add_ticker / remove_ticker at runtime.
         """
         ...
 
@@ -271,14 +275,17 @@ class MassiveClient(MarketDataSource):
         updates = []
         for t in data.get("tickers", []):
             try:
-                # Use lastTrade.p if available (requires Advanced plan), else day.c
+                # Use lastTrade.p if available (requires Advanced/Developer plan), else day.c
                 last_trade = t.get("lastTrade") or {}
-                price = last_trade.get("p") or t["day"]["c"]
-                prev_price = t["prevDay"]["c"]
-                change = price - prev_price
-                change_pct = (change / prev_price * 100) if prev_price else 0.0
+                day = t.get("day") or {}
+                price = last_trade.get("p") or day.get("c") or 0.0
+                prev_price = (t.get("prevDay") or {}).get("c") or price
+                # Use the API-computed daily change fields directly — they account for
+                # splits, corporate actions, and are calculated from the official prev close.
+                change = t.get("todaysChange", price - prev_price)
+                change_pct = t.get("todaysChangePerc", 0.0)
                 ts_ns = t.get("updated", 0)
-                timestamp = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
+                timestamp = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc) if ts_ns else datetime.now(tz=timezone.utc)
                 updates.append(PriceUpdate(
                     ticker=t["ticker"],
                     price=price,
@@ -369,8 +376,9 @@ def create_market_data_source(cache: PriceCache) -> MarketDataSource:
     - If MASSIVE_API_KEY is set and non-empty → MassiveClient
     - Otherwise → MarketSimulator
 
-    The poll interval for MassiveClient is derived from MASSIVE_POLL_INTERVAL
-    (seconds, float). Defaults to 15.0 (safe for the free tier).
+    The poll interval for MassiveClient is read from MASSIVE_POLL_INTERVAL
+    (seconds, float). Defaults to 15.0 (safe for the free tier; 4 calls/min
+    for 10 tickers). Set to 2–5 on paid plans for near-real-time data.
     """
     api_key = os.getenv("MASSIVE_API_KEY", "").strip()
 
@@ -419,8 +427,11 @@ DEFAULT_TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA",
 async def lifespan(app: FastAPI):
     cache = PriceCache()
     source = create_market_data_source(cache)
-    # Load tickers from DB (falls back to defaults on fresh install)
-    tickers = await get_default_watchlist() or DEFAULT_TICKERS
+    # Seed from positions ∪ watchlist so held-but-unwatched tickers stay priced.
+    # Falls back to defaults on a fresh install with no DB data yet.
+    watchlist_tickers = await get_default_watchlist() or DEFAULT_TICKERS
+    position_tickers = list(await get_open_positions())  # {ticker: qty} → keys
+    tickers = list(dict.fromkeys(watchlist_tickers + position_tickers))  # dedup, preserve order
     await source.start(tickers)
     app.state.cache = cache
     app.state.market = source
@@ -489,13 +500,22 @@ async def add_ticker(body: dict, request: Request):
 
 @app.delete("/api/watchlist/{ticker}")
 async def remove_ticker(ticker: str, request: Request):
-    request.app.state.market.remove_ticker(ticker.upper())
+    ticker = ticker.upper()
+    # Only stop tracking the ticker if the user holds no position in it.
+    # Positions require live prices for P&L — removing from the watchlist must not
+    # break portfolio updates for held tickers.
+    positions = await get_open_positions()  # returns {ticker: quantity}
+    if ticker not in positions:
+        request.app.state.market.remove_ticker(ticker)
     # ... remove from DB
 ```
 
 ---
 
 ## Design Decisions
+
+**Which tickers should the source track?**
+`positions ∪ watchlist`. Portfolio P&L calculations require live prices for every held position — even tickers the user has removed from the watchlist. The `add_ticker` / `remove_ticker` calls on the watchlist routes handle the watchlist half; the portfolio routes (or a startup hook) must call `add_ticker` for any ticker that has a non-zero position. This is a runtime responsibility of the caller, not the source.
 
 **Why not use the official `massive` Python library?**
 The official library wraps the API but is synchronous. Since FastAPI is async, using `httpx.AsyncClient` directly gives full async/await support and avoids blocking the event loop. The library is fine for scripts and notebooks but adds complexity in an async context.
