@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 ```
 
-SSE endpoint, watchlist routes, portfolio routes, and chat route designs are in `../planning/MARKET_INTERFACE.md` and `../planning/PLAN.md`.
+SSE endpoint, watchlist routes, portfolio routes, and chat route designs are in `../planning/PLAN.md` and `../planning/archive/MARKET_INTERFACE.md`.
 
 ---
 
