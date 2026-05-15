@@ -121,7 +121,7 @@ class MassiveClient(MarketDataSource):
                 response = await http.get(url, params=params, headers=self._headers)
                 response.raise_for_status()
                 data = response.json()
-            except (httpx.HTTPError, Exception) as e:
+            except Exception as e:
                 logger.error("Failed to fetch daily bars for %s: %s", ticker, e)
                 return []
 

@@ -234,6 +234,7 @@ async def test_stop_cancels_task():
             raise
 
     client._task = asyncio.create_task(fake_loop())
+    await asyncio.sleep(0)  # yield so fake_loop reaches its first await before cancellation
     await client.stop()
     assert cancelled
 
@@ -377,3 +378,45 @@ async def test_fetch_snapshots_returns_parsed_updates_on_success():
     result = await client._fetch_snapshots(mock_http)
     assert len(result) == 1
     assert result[0].ticker == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_fetch_snapshots_backs_off_on_429():
+    """HTTP 429 should trigger a 60-second sleep and return []."""
+    client, _ = _make_client()
+    client._tickers = {"AAPL"}
+
+    mock_response = MagicMock()
+    mock_response.status_code = 429
+    error = httpx.HTTPStatusError("rate limited", request=MagicMock(), response=mock_response)
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(side_effect=error)
+
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        result = await client._fetch_snapshots(mock_http)
+
+    assert result == []
+    mock_sleep.assert_called_once_with(60)
+    # Tickers should NOT be cleared — a rate limit is transient, not an auth failure
+    assert "AAPL" in client._tickers
+
+
+@pytest.mark.asyncio
+async def test_get_daily_bars_returns_empty_on_http_status_error():
+    """HTTP 4xx/5xx from the bars endpoint should return [] without raising."""
+    client, _ = _make_client()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    error = httpx.HTTPStatusError("not found", request=MagicMock(), response=mock_response)
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(side_effect=error)
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        bars = await client.get_daily_bars("AAPL", "2025-01-01", "2025-01-31")
+
+    assert bars == []
