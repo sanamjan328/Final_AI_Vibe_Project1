@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sanamjan-tools",
+  "description": "Local plugins for the FinAlly project",
+  "owner": {
+    "name": "sanamjan",
+    "email": "sanamjan328@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "independent-reviewer",
+      "description": "carry out an independent review of all changes since last commit",
+      "source": "./plugins/independent-reviewer",
+      "category": "development"
+    }
+  ]
+}
