@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --color-terminal: #0d1117;
+  --color-panel: #161b22;
+  --color-card: #1c2128;
+  --color-border-soft: #30363d;
+  --color-text-muted: #8b949e;
+  --color-text-bright: #c9d1d9;
+  --color-accent-yellow: #ecad0a;
+  --color-accent-blue: #209dd7;
+  --color-accent-purple: #753991;
+  --color-up-green: #26a641;
+  --color-down-red: #da3633;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background-color: #0d1117;
+  color: #c9d1d9;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Price flash animations */
+.price-flash-up {
+  animation: flashUp 600ms ease-out;
+}
+.price-flash-down {
+  animation: flashDown 600ms ease-out;
+}
+@keyframes flashUp {
+  0% {
+    background-color: rgba(38, 166, 65, 0.55);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes flashDown {
+  0% {
+    background-color: rgba(218, 54, 51, 0.55);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Custom scrollbar for terminal feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Pulsing status dot */
+@keyframes pulseSoft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.status-pulse {
+  animation: pulseSoft 1.6s ease-in-out infinite;
+}
+
+/* Subtle row hover for tables */
+.row-hover:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Numeric tabular figures for price columns */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
